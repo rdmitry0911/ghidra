@@ -310,7 +310,7 @@ public:
 /// \brief Structure control-flow using standard high-level code constructs.
 class ActionBlockStructure : public Action {
 public:
-  ActionBlockStructure(const string &g) : Action(rule_modcount_skip,"blockstructure",g) {}	///< Constructor; opt-in to modcount-skip — already has its own early-out if graph.getSize()!=0, so modcount-skip overlaps slightly, but cheaper to short-circuit upstream than walk into the action
+  ActionBlockStructure(const string &g) : Action(0,"blockstructure",g) {}	///< Constructor; graph invalidation is independent of the IR-only mutation counter
   virtual Action *clone(const ActionGroupList &grouplist) const {
     if (!grouplist.contains(getGroup())) return (Action *)0;
     return new ActionBlockStructure(getGroup());
