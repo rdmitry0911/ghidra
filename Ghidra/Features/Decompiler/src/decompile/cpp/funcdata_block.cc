@@ -102,7 +102,6 @@ void Funcdata::pushMultiequals(BlockBasic *bb)
     origvn = origop->getOut();
     if (origvn->hasNoDescend()) continue;
     bool needreplace = false;
-    bool neednewunique = false;
     for(citer=origvn->beginDescend();citer!=origvn->endDescend();++citer) {
       PcodeOp *op = *citer;
       if ((op->code()==CPUI_MULTIEQUAL)&&(op->getParent()==outblock)) {
@@ -114,14 +113,8 @@ void Funcdata::pushMultiequals(BlockBasic *bb)
 	    break;
 	  }
 	}
-	if (deadEdge) {
-	  if ((origvn->getAddr() == op->getOut()->getAddr())&&origvn->isAddrTied())
-	  // If origvn is addrtied and feeds into a MULTIEQUAL at same address in outblock
-	  // Then any use of origvn beyond outblock that did not go thru this MULTIEQUAL must have
-	  // propagated through some other register.  So we make the new MULTIEQUAL write to a unique register
-	    neednewunique = true;
+	if (deadEdge)
 	  continue;
-	}
       }
       needreplace = true;
       break;
@@ -129,7 +122,12 @@ void Funcdata::pushMultiequals(BlockBasic *bb)
     if (!needreplace) continue;
 				// Construct artificial MULTIEQUAL
     vector<Varnode *> branches;
-    if (neednewunique)
+    // This PHI carries a saved value across the removed block, not a new
+    // write to the original storage. Its consumers can include both a
+    // cached register use and a call-affected memory PHI (already in unique
+    // storage). Reusing address-tied storage confuses these distinct values
+    // and required merging can invent physical stores to restore the cache.
+    if (origvn->isAddrTied())
       replacevn = newUnique(origvn->getSize());
     else
       replacevn = newVarnode(origvn->getSize(),origvn->getAddr());
