@@ -1000,7 +1000,8 @@ bool Funcdata::syncVarnodesWithSymbols(const ScopeLocal *lm,bool updateDatatypes
     ct = (Datatype *)0;
     if (entry != (SymbolEntry *)0) {
       fl = entry->getAllFlags();
-      if (entry->getSize() >= vnexemplar->getSize()) {
+      if (entry->getAddr().justifiedContain(entry->getSize(),
+              vnexemplar->getAddr(),vnexemplar->getSize(),false) >= 0) {
 	if (updateDatatypes) {
 	  ct = entry->getSizedType(vnexemplar->getAddr(), vnexemplar->getSize());
 	  if (ct != (Datatype *)0 && ct->getMetatype() == TYPE_UNKNOWN)
@@ -1012,8 +1013,11 @@ bool Funcdata::syncVarnodesWithSymbols(const ScopeLocal *lm,bool updateDatatypes
 	// getting put in a bigger register
 	// Don't try to figure out type
 	// Don't keep typelock and namelock
-	fl &= ~((uint4)(Varnode::typelock|Varnode::namelock));
-	// we do particularly want to keep the nolocalalias
+	// An unaliased part cannot establish that the entire Varnode is
+	// unaliased: another overlapping part may escape through a pointer.
+	// Otherwise sync clears address forcing on its call guards and
+	// dead-code removal can delete a live store to the escaped part.
+	fl &= ~((uint4)(Varnode::typelock|Varnode::namelock|Varnode::nolocalalias));
       }
     }
     else { // Could not find any symbol
