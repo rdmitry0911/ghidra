@@ -463,6 +463,7 @@ class JumpBasicOverride : public JumpBasic {
   vector<uintb> values;		///< Normalized switch variable values associated with addresses
   vector<Address> addrtable;	///< Address associated with each value
   uintb startingvalue;		///< Possible start for guessing values that match addresses
+  uint4 valuecount;		///< Optional exact consecutive value count; zero preserves address-set inference
   Address normaddress;		///< Dynamic info for recovering normalized switch variable
   uint8 hash;			///< if (hash==0) there is no normalized switch (use trivial model)
   bool istrivial;		///< \b true if we use a trivial value model

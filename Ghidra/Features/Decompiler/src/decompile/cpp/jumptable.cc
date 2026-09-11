@@ -1788,6 +1788,7 @@ JumpBasicOverride::JumpBasicOverride(JumpTable *jt)
   : JumpBasic(jt)
 {
   startingvalue = 0;
+  valuecount = 0;
   hash = 0;
   istrivial = false;
 }
@@ -1857,10 +1858,17 @@ int4 JumpBasicOverride::trialNorm(Funcdata *fd,Varnode *trialvn,uint4 tolerance)
   uint4 total = 0;
   uint4 miss = 0;
   set<Address> alreadyseen;
-  while(total < adset.size()) {
+  // An explicit value domain includes repeated destinations, even after
+  // every distinct address has already been observed.
+  while(valuecount != 0 ? values.size() < valuecount : total < adset.size()) {
     try {
       addr = emul.emulatePath(val,pathMeld,startop,trialvn);
     } catch(LowlevelError &err) { // Something went wrong with emulation
+      if (valuecount != 0) {
+        values.clear();
+        addrtable.clear();
+        return -1;
+      }
       addr = 0;
       miss = tolerance;		// Terminate early
     }
@@ -1873,10 +1881,11 @@ int4 JumpBasicOverride::trialNorm(Funcdata *fd,Varnode *trialvn,uint4 tolerance)
       addrtable.push_back(newaddr);
       // We may be seeing the same (valid) address over and over, without seeing others in -adset-
       // Terminate if things get too large
-      if (values.size() > adset.size() + 100) break;
+      if (valuecount == 0 && values.size() > adset.size() + 100) break;
       miss = 0;
     }
     else {
+      if (valuecount != 0) break; // An exact domain cannot skip a value
       miss += 1;
       if (miss >= tolerance) break;
     }
@@ -1885,7 +1894,7 @@ int4 JumpBasicOverride::trialNorm(Funcdata *fd,Varnode *trialvn,uint4 tolerance)
   
   //  if ((loadpoint != (vector<LoadTable> *)0)&&(total == adset.size()))
   //    emul.collectLoadPoints(*loadpoints);
-  if (total == adset.size())
+  if (total == adset.size() && (valuecount == 0 || values.size() == valuecount))
     return opi;
   values.clear();
   addrtable.clear();
@@ -1990,6 +1999,8 @@ bool JumpBasicOverride::recoverModel(Funcdata *fd,PcodeOp *indop,uint4 matchsize
       }
     }
   }
+  if (valuecount != 0)
+    throw LowlevelError("Unable to recover the complete explicit jump-table value domain");
   setupTrivial();
   return true;
 }
@@ -2029,6 +2040,7 @@ JumpModel *JumpBasicOverride::clone(JumpTable *jt) const
   res->values = values;
   res->addrtable = addrtable;
   res->startingvalue = startingvalue;
+  res->valuecount = valuecount;
   res->normaddress = normaddress;
   res->hash = hash;
   return res;
@@ -2039,6 +2051,7 @@ void JumpBasicOverride::clear(void)
 {
   // -adset- is a permanent feature, do no clear
   // -startingvalue- is permanent
+  // -valuecount- is permanent
   // -normaddress- is permanent
   // -hash- is permanent
   values.clear();
@@ -2052,6 +2065,8 @@ void JumpBasicOverride::encode(Encoder &encoder) const
   set<Address>::const_iterator iter;
 
   encoder.openElement(ELEM_BASICOVERRIDE);
+  if (valuecount != 0)
+    encoder.writeUnsignedInteger(ATTRIB_SIZE, valuecount);
   for(iter=adset.begin();iter!=adset.end();++iter) {
     encoder.openElement(ELEM_DEST);
     AddrSpace *spc = (*iter).getSpace();
@@ -2079,6 +2094,14 @@ void JumpBasicOverride::decode(Decoder &decoder)
 
 {
   uint4 elemId = decoder.openElement(ELEM_BASICOVERRIDE);
+  for(uint4 attribId = decoder.getNextAttributeId(); attribId != 0; attribId = decoder.getNextAttributeId()) {
+    if (attribId == ATTRIB_SIZE) {
+      uintb count = decoder.readUnsignedInteger();
+      if (count == 0 || count > 0xffffffff)
+        throw LowlevelError("Invalid explicit jump-table value count");
+      valuecount = count;
+    }
+  }
   for(;;) {
     uint4 subId = decoder.openElement();
     if (subId == 0) break;
@@ -2544,6 +2567,12 @@ void JumpTable::switchOver(const FlowInfo &flow)
   FlowBlock *parent,*tmpbl;
   int4 pos;
   PcodeOp *op;
+
+  // A failed explicit override remains registered during flow recovery.
+  // It has no destinations to link; report failure instead of dereferencing
+  // the empty block map (or the discarded partial-function branch).
+  if (addresstable.empty())
+    throw LowlevelError("Cannot link unrecovered jump-table destinations");
 
   block2addr.clear();
   block2addr.reserve(addresstable.size());

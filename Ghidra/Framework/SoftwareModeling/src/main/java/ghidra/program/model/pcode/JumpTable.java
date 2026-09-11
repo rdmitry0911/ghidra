@@ -77,6 +77,7 @@ public class JumpTable {
 
 	public class BasicOverride {
 		private Address[] destlist;		// List of jump destinations, must be addresses of instructions
+		private int valueCount;		// Optional exact consecutive value count
 
 		public BasicOverride(ArrayList<Address> dlist) {
 			destlist = new Address[dlist.size()];
@@ -89,6 +90,9 @@ public class JumpTable {
 
 		public void encode(Encoder encoder) throws IOException {
 			encoder.openElement(ELEM_BASICOVERRIDE);
+			if (valueCount != 0) {
+				encoder.writeUnsignedInteger(ATTRIB_SIZE, valueCount);
+			}
 			for (Address element : destlist) {
 				encoder.openElement(ELEM_DEST);
 				AddressXML.encodeAttributes(encoder, element);
@@ -142,6 +146,14 @@ public class JumpTable {
 			return true;
 		}
 		return false;
+	}
+
+	/** Set a source-proven consecutive value count, preserving repeated targets. */
+	public void setOverrideValueCount(int count) {
+		if (override == null || count <= 0) {
+			throw new IllegalArgumentException("A positive value count requires a jump-table override");
+		}
+		override.valueCount = count;
 	}
 
 	/**
@@ -340,6 +352,10 @@ public class JumpTable {
 			HighFunction.createLabelSymbol(symtab, destlist[i], nm, space, SourceType.USER_DEFINED,
 				false);
 		}
+		if (override.valueCount != 0) {
+			HighFunction.createLabelSymbol(symtab, opAddress, "values_" + override.valueCount,
+				space, SourceType.USER_DEFINED, false);
+		}
 		if (displayFormat != EquateSymbol.FORMAT_DEFAULT) {
 			String nm = "format_" + EquateSymbol.getIntegerFormatString(displayFormat);
 			HighFunction.createLabelSymbol(symtab, opAddress, nm, space, SourceType.USER_DEFINED,
@@ -352,6 +368,7 @@ public class JumpTable {
 		ArrayList<Address> destlist = new ArrayList<>();
 		SymbolIterator iter = symtab.getSymbols(space);
 		int displayFormat = 0;
+		int valueCount = 0;
 		while (iter.hasNext()) {
 			Symbol sym = iter.next();
 			if (!(sym instanceof CodeSymbol)) {
@@ -364,6 +381,9 @@ public class JumpTable {
 			else if (sym.getName().startsWith("case")) {
 				destlist.add(addr);
 			}
+			else if (sym.getName().startsWith("values_")) {
+				valueCount = Integer.parseInt(sym.getName().substring(7));
+			}
 			else if (sym.getName().startsWith("format")) {
 				branchind = addr;
 				displayFormat = EquateSymbol.getFormatStringValue(sym.getName().substring(7));
@@ -371,7 +391,11 @@ public class JumpTable {
 		}
 		if ((branchind != null) && (destlist.size() > 0 || displayFormat != 0)) {
 			boolean override = destlist.size() > 0;
-			return new JumpTable(branchind, destlist, override, displayFormat);
+			JumpTable table = new JumpTable(branchind, destlist, override, displayFormat);
+			if (valueCount != 0) {
+				table.setOverrideValueCount(valueCount);
+			}
+			return table;
 		}
 		return null;
 	}
